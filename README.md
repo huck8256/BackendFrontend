@@ -14,7 +14,7 @@
 + Stun Server(UDP 통신)
   + UDP Hole Punching
 
-**TCP, UDP 포트포워딩 필요__
+**TCP, UDP 포트포워딩 필요**
 
 ### Client
 + TCP Client
