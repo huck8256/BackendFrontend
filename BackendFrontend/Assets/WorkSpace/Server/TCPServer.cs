@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using UnityEngine;
 using UniRx;
+using MongoDB.Bson;
 
 public class TCPServer : MonoBehaviour
 {
@@ -143,7 +144,7 @@ public class TCPServer : MonoBehaviour
         }
     }
     #endregion
-    void ReceivedMessageProcess(TcpClient client, Dictionary<string, string> message)
+    async void ReceivedMessageProcess(TcpClient client, Dictionary<string, string> message)
     {
         if (message.TryGetValue("Type", out string type))
         {
@@ -151,6 +152,109 @@ public class TCPServer : MonoBehaviour
             {
                 case "Connect":
 
+                    break;
+                case "SignIn":
+                    Debug.Log("[TCPServer] Client SignIn requested");
+                    if (message.TryGetValue("ID", out string signInID))
+                    {
+                        // DB에서 ID값이 일치하는 데이터 Get
+                        BsonDocument _bsonDocument = await MongoDBCommunity.Instance.GetBsonDocumentAsync("ID", signInID);
+
+                        if(_bsonDocument != null)
+                        {
+                            if (message.TryGetValue("Password", out string signInPassword) && _bsonDocument["Password"] == signInPassword)
+                            {
+                                Debug.Log("[TCPServer] Client SignIn Succeed");
+
+                                // UserData 가져오기
+                                UserData _userData = new UserData();
+                                _userData.GUID = _bsonDocument["_id"].ToString();
+                                if(_bsonDocument.TryGetValue("Nickname", out BsonValue value))
+                                    _userData.Nickname = value.ToString();
+                                else
+                                    _userData.Nickname = "Unknown";
+
+                                // 성공 메세지
+                                Dictionary<string, string> _signIn_SucceedMessage = new Dictionary<string, string>
+                                {
+                                    { "Type", "SignIn" },
+                                    { "Result", "Succeed" },
+                                    { "UserData", JsonConvert.SerializeObject(_userData)}
+                                };
+                                _ = SendMessageAsync(client, _signIn_SucceedMessage);
+                                return;
+                            }
+                        }
+                    }
+
+                    // 실패 메세지
+                    Debug.Log("[TCPServer] Client SignIn Failed");
+
+                    Dictionary<string, string> _signIn_FailedMessage = new Dictionary<string, string>
+                                {
+                                    { "Type", "SignIn" },
+                                    { "Result", "Failed" }
+                                };
+                    _ = SendMessageAsync(client, _signIn_FailedMessage);
+                    break;
+                case "SignUp":
+                    Debug.Log("[TCPServer] Client SignUp requested");
+                    if (message.TryGetValue("ID", out string signUpID) && message.TryGetValue("Password", out string signUpPassword))
+                    {
+                        if (await MongoDBCommunity.Instance.TryInsertAccountDataAsync(signUpID, signUpPassword))
+                        {
+                            Debug.Log("[TCPServer] Client SignUp Succeed");
+
+                            Dictionary<string, string> _signUp_SucceedMessage = new Dictionary<string, string>
+                            {
+                                { "Type", "SignUp" },
+                                { "Result", "Succeed" }
+                            };
+
+                            _ = SendMessageAsync(client, _signUp_SucceedMessage);
+                            return;
+                        }
+                    }
+                    // 실패 메세지
+
+                    Debug.LogError("[TCPServer] ID already exists.");
+
+                    Dictionary<string, string> _signUp_FailedMessage = new Dictionary<string, string>
+                                {
+                                    { "Type", "SignUp" },
+                                    { "Result", "Failed" }
+                                };
+
+                    _ = SendMessageAsync(client, _signUp_FailedMessage);
+
+                    break;
+                case "SetNickname":
+                    // 성공 시,
+                    if (message.TryGetValue("Nickname", out string nickname) && await MongoDBCommunity.Instance.IsUnique("Nickname", nickname))
+                    {
+                        if(message.TryGetValue("GUID", out string guid))
+                        {
+                            await MongoDBCommunity.Instance.UpdateDataAsync(guid, "Nickname", nickname);
+
+                            Dictionary<string, string> _setNickname_SucceedMessage = new Dictionary<string, string>
+                                {
+                                    { "Type", "SetNickname" },
+                                    { "Result", "Succeed" },
+                                    { "Nickname", nickname }
+                                };
+
+                            _ = SendMessageAsync(client, _setNickname_SucceedMessage);
+                            return;
+                        }
+                    }
+                    // 실패 시,
+                    Dictionary<string, string> _setNickname_FailedMessage = new Dictionary<string, string>
+                    {
+                        { "Type", "SetNickname" },
+                        { "Result", "Failed" }
+                    };
+
+                    _ = SendMessageAsync(client, _setNickname_FailedMessage);
                     break;
                 case "Match":
                     if (message.TryGetValue("IPEndPoint", out string ipEndPoint))
