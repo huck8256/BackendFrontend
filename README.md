@@ -31,6 +31,11 @@
     + Host에게 입력 값 전달
     + Host로 부터 수신한 좌표 값 적용
 
+### MongoDB Community
++ MongoDBCommunity
+  + TCP Server와 송수신
+  + ObjectID, ID, Password, Nickname 저장
+  
 ## 장단점
 ### 장점
 * TCP Server가 구동되는 컴퓨터 1대만 필요(추 후 확장이 필요할 시, 증가)
