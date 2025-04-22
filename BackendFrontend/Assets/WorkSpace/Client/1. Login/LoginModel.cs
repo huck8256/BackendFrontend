@@ -1,8 +1,11 @@
 using System;
+using Unity.VisualScripting;
 using UnityEngine.Events;
 
-public class Login : ILoginService, IDisposable
+public class LoginModel : IInitializable, IDisposable, ILoginService
 {
+    public LoginModel() { }
+
     #region Public Variable
     public event UnityAction<UserData> OnSignInSucceed;
     public event UnityAction OnSignInFailed;
