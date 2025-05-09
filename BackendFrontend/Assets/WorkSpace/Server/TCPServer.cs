@@ -28,7 +28,6 @@ public class TCPServer : MonoBehaviour
         string publicIP = Global.GetPublicIPAddress();
         Debug.Log($"[TCPServer] Running on IP: {publicIP}, Port: {port}");
     }
-    #region Basic TCP Server
     private void Start()
     {
         // 오브젝트 파괴 시, Cancel
@@ -44,7 +43,6 @@ public class TCPServer : MonoBehaviour
         // 매칭
         _ = UniTask.RunOnThreadPool(() => MatchMakingAsync());
     }
-
     private async UniTask AcceptClientAsync()
     {
         try
@@ -63,9 +61,6 @@ public class TCPServer : MonoBehaviour
 
                 // 메세지 수신
                 _ = UniTask.RunOnThreadPool(() => ReceiveMessageAsync(_client));
-
-                // 메세지 전송
-                _ = SendMessageAsync(_client, new Dictionary<string, string>() { { "Type", "Connect" } });
             }
         }
         catch (Exception e)
@@ -73,29 +68,71 @@ public class TCPServer : MonoBehaviour
             Debug.LogError($"[TCPServer] Error accepting client: {e.Message}");
         }
     }
+    private async UniTask SendMessageAsync(TcpClient client, PacketID packetID, Dictionary<string, string> body)
+    {
+        // Body 직렬화
+        string json = JsonConvert.SerializeObject(body);
+        byte[] bodyBytes = Encoding.UTF8.GetBytes(json);
+
+        // Header 생성
+        int totalSize = PacketHeader.Size + bodyBytes.Length;
+        byte[] packet = new byte[totalSize];
+
+        // Header 삽입
+        Array.Copy(BitConverter.GetBytes(totalSize), 0, packet, 0, 4);          // Packet Size
+        Array.Copy(BitConverter.GetBytes((ushort)packetID), 0, packet, 4, 2);   // Packet ID
+
+        // Body 삽입
+        Array.Copy(bodyBytes, 0, packet, PacketHeader.Size, bodyBytes.Length);
+
+        // 전송
+        try
+        {
+            await client.GetStream().WriteAsync(packet, 0, packet.Length);
+            Debug.Log($"[TCPServer] Sent message: {packetID}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[TCPServer] Error sending message: {e.Message}");
+        }
+    }
     private async UniTask ReceiveMessageAsync(TcpClient client)
     {
         NetworkStream stream = client.GetStream();
-        byte[] buffer = new byte[1024];
+        byte[] headerBuffer = new byte[PacketHeader.Size];
 
         try
         {
             while (client.Connected && !token.IsCancellationRequested)
             {
-                int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                if (bytesRead == 0) break;  // 클라이언트 연결 종료 감지
+                // Header 수신
+                int headerRead = await stream.ReadAsync(headerBuffer, 0, PacketHeader.Size);
+                if (headerRead < PacketHeader.Size) break;
 
-                // Byte[] to string
-                string receivedMessage = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                int packetSize = BitConverter.ToInt32(headerBuffer, 0);
+                ushort packetID = BitConverter.ToUInt16(headerBuffer, 4);
 
-                // string to Dictionary<string, string>
-                var messageData = JsonConvert.DeserializeObject<Dictionary<string, string>>(receivedMessage);
-                if (messageData == null) return;
+                int bodySize = packetSize - PacketHeader.Size;
 
-                Debug.Log($"[TCPServer] Received message: {receivedMessage}");
+                // Body 수신
+                byte[] boddyBuffer = new byte[bodySize];
+                    // Body Byte데이터를 BodySize만큼 다 읽기 위한 로직
+                int totalRead = 0;
+                while(totalRead < bodySize)
+                {
+                    int read = await stream.ReadAsync(boddyBuffer, totalRead, bodySize - totalRead);
+                    if (read == 0)
+                    {
+                        Debug.LogWarning("[TCPServer] Client Disconnected");
+                        break;
+                    }
+                    totalRead += read;
+                }
 
-                // 메세지 처리 함수
-                ReceivedMessageProcess(client, messageData);
+                string json = Encoding.UTF8.GetString(boddyBuffer);
+                var body = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+
+                HandlePacket(client, packetID, body);
             }
         }
         catch (Exception e)
@@ -103,23 +140,201 @@ public class TCPServer : MonoBehaviour
             Debug.LogError($"[TCPServer] Error receiving message: {e.Message}");
         }
         finally
+
         {
             DisconnectClientAsync(client);
         }
     }
-    private async UniTask SendMessageAsync(TcpClient client, Dictionary<string, string> message)
+    // 라우터
+    private void HandlePacket(TcpClient client, ushort packetID, Dictionary<string, string> body)
     {
-        string json = JsonConvert.SerializeObject(message);
-        byte[] data = Encoding.UTF8.GetBytes(json);
+        PacketID _packetID = (PacketID)packetID;
 
-        try
+        switch (_packetID)
         {
-            await client.GetStream().WriteAsync(data, 0, data.Length);
-            Debug.Log($"[TCPServer] Sent message: {json}");
+            case PacketID.Ping:
+                HandlePing(client, body);
+                break;
+            case PacketID.SignIn:
+                HandleSignIn(client, body);
+                break;
+            case PacketID.SignUp:
+                HandleSignUp(client, body);
+                break;
+            case PacketID.SetNickname:
+                HandleSetNickname(client, body);
+                break;
+            case PacketID.Matching:
+                HandleMatch(client, body);
+                break;
+            default:
+                Debug.LogWarning($"[서버] 알 수 없는 PacketID: {packetID}");
+                break;
         }
-        catch (Exception e)
+    }
+    private void SendPong(TcpClient client, Dictionary<string, string> body)
+    {
+        Dictionary<string, string> pong = new Dictionary<string, string>();
+
+        if (body.TryGetValue("Timestamp", out string ts))
+            pong["Timestamp"] = ts;
+
+        _ = SendMessageAsync(client, PacketID.Pong, pong);
+    }
+    private void HandlePing(TcpClient client, Dictionary<string, string> body)
+    {
+        Debug.Log("[TCPServer] Received Ping");
+
+        SendPong(client, body);
+    }
+    // 클래스 분리 필요
+    private async void HandleSignIn(TcpClient client, Dictionary<string, string> body)
+    {
+        Debug.Log("[TCPServer] Received SignIn request");
+
+        Dictionary<string, string> sendMessage = new Dictionary<string, string> { { "Result", "" } };
+
+        if (body.TryGetValue("ID", out string id) && body.TryGetValue("Password", out string pw))
         {
-            Debug.LogError($"[TCPServer] Error sending message: {e.Message}");
+            // 리팩토링 필요
+            BsonDocument _bsonDocument = await MongoDBCommunity.Instance.GetBsonDocumentAsync("ID", id);
+            if (_bsonDocument != null)
+            {
+                if (_bsonDocument["Password"] == pw)
+                {
+                    Debug.Log("[TCPServer] SignIn Succeed");
+
+                    // UserData 가져오기
+                    UserData _userData = new UserData();
+
+                    if (_bsonDocument.TryGetValue("_id", out BsonValue guid))
+                        _userData.GUID = guid.ToString();
+
+                    if (_bsonDocument.TryGetValue("Nickname", out BsonValue value))
+                        _userData.Nickname = value.ToString();
+                    else
+                        _userData.Nickname = "Unknown";
+
+                    // 성공 메세지
+                    sendMessage["Result"] = "Succeed";
+                    sendMessage.Add("UserData", JsonConvert.SerializeObject(_userData));
+
+                    _ = SendMessageAsync(client, PacketID.SignIn, sendMessage);
+                    return;
+                }
+            }
+        }
+
+        // 실패 메세지
+        Debug.Log("[TCPServer] SignIn Failed");
+        sendMessage["Result"] = "Failed";
+        _ = SendMessageAsync(client, PacketID.SignIn, sendMessage);
+    }
+    private async void HandleSignUp(TcpClient client, Dictionary<string, string> body)
+    {
+        Debug.Log("[TCPServer] Received SignUp request");
+
+        Dictionary<string, string> sendMessage = new Dictionary<string, string>() { { "Result", "" } };
+
+        if (body.TryGetValue("ID", out string id) && body.TryGetValue("Password", out string pw))
+        {
+            if (await MongoDBCommunity.Instance.TryInsertAccountDataAsync(id, pw))
+            {
+                Debug.Log("[TCPServer] SignUp Succeed");
+
+                sendMessage["Result"] = "Succeed";
+                _ = SendMessageAsync(client, PacketID.SignUp, sendMessage);
+                return;
+            }
+        }
+
+        // 실패 메세지
+        Debug.Log("[TCPServer] SignUp Failed");
+        sendMessage["Result"] = "Failed";
+        _ = SendMessageAsync(client, PacketID.SignUp, sendMessage);
+    }
+    private async void HandleSetNickname(TcpClient client, Dictionary<string, string> body)
+    {
+        Debug.Log("[TCPServer] Received SetNickname request");
+
+        Dictionary<string, string> sendMessage = new Dictionary<string, string>() { { "Result", "" } };
+
+        // 성공 시,
+        if (body.TryGetValue("Nickname", out string nickname))
+        {
+            if(await MongoDBCommunity.Instance.IsUnique("Nickname", nickname))
+            {
+                if (body.TryGetValue("GUID", out string guid))
+                {
+                    await MongoDBCommunity.Instance.UpdateDataAsync(guid, "Nickname", nickname);
+
+                    Debug.Log("[TCPServer] SetNickname Succeed");
+
+                    sendMessage["Result"] = "Succeed";
+                    sendMessage.Add("Nickname", nickname);
+
+                    _ = SendMessageAsync(client, PacketID.SetNickname, sendMessage);
+
+                    return;
+                }
+            }
+        }
+
+        // 실패 시,
+        Debug.Log("[TCPServer] SetNickname Failed");
+        sendMessage["Result"] = "Failed";
+        _ = SendMessageAsync(client, PacketID.SetNickname, sendMessage);
+    }
+    private void HandleMatch(TcpClient client, Dictionary<string, string> body)
+    {
+        Debug.Log("[TCPServer] Received Match request");
+
+        Dictionary<string, string> sendMessage = new Dictionary<string, string>() { { "Result", "" } };
+
+        if (body.TryGetValue("IPEndPoint", out string ipEndPoint))
+        {
+            if (Clients.TryGetValue(client, out ClientInfo info))
+            {
+                string[] _parts = ipEndPoint.Split(':');
+                string _address = _parts[0];
+                int _port = int.Parse(_parts[1]);
+
+                // UDP IPEndPoint 저장
+                info.Address = _address;
+                info.Port = _port;
+            }
+            else
+            {
+                Debug.LogError("[TCPServer] The client is not registered");
+            }
+        }
+        else if (body.TryGetValue("Result", out string result))
+        {
+            if (result.Equals("Requested"))
+            {
+                matchQueue.Enqueue(client);
+                Debug.Log("[TCPServer] Client match requested");
+                Debug.Log($"[TCPServer] Current matching client count: {matchQueue.Count}");
+
+                sendMessage["Result"] = "Requested";
+                // 매칭 요청
+            }
+            else if (result.Equals("Canceled"))
+            {
+                DequeueInMatchQueue(client);
+                Debug.Log("[TCPServer] Client match request canceled");
+
+                sendMessage["Result"] = "Canceled";
+                // 매칭 요청 취소
+            }
+            else
+            {
+                Debug.LogError("[TCPServer] Request message is not identify");
+
+                sendMessage["Result"] = "Canceled";
+            }
+
+            _ = SendMessageAsync(client, PacketID.Matching, sendMessage);
         }
     }
     private void DisconnectClientAsync(TcpClient client)
@@ -143,165 +358,7 @@ public class TCPServer : MonoBehaviour
             Debug.LogError($"[TCPServer] Error while disconnecting client: {e.Message}");
         }
     }
-    #endregion
-    async void ReceivedMessageProcess(TcpClient client, Dictionary<string, string> message)
-    {
-        if (message.TryGetValue("Type", out string type))
-        {
-            switch (type)
-            {
-                case "Connect":
-
-                    break;
-                case "SignIn":
-                    Debug.Log("[TCPServer] Client SignIn requested");
-                    if (message.TryGetValue("ID", out string signInID))
-                    {
-                        // DB에서 ID값이 일치하는 데이터 Get
-                        BsonDocument _bsonDocument = await MongoDBCommunity.Instance.GetBsonDocumentAsync("ID", signInID);
-
-                        if(_bsonDocument != null)
-                        {
-                            if (message.TryGetValue("Password", out string signInPassword) && _bsonDocument["Password"] == signInPassword)
-                            {
-                                Debug.Log("[TCPServer] Client SignIn Succeed");
-
-                                // UserData 가져오기
-                                UserData _userData = new UserData();
-                                _userData.GUID = _bsonDocument["_id"].ToString();
-                                if(_bsonDocument.TryGetValue("Nickname", out BsonValue value))
-                                    _userData.Nickname = value.ToString();
-                                else
-                                    _userData.Nickname = "Unknown";
-
-                                // 성공 메세지
-                                Dictionary<string, string> _signIn_SucceedMessage = new Dictionary<string, string>
-                                {
-                                    { "Type", "SignIn" },
-                                    { "Result", "Succeed" },
-                                    { "UserData", JsonConvert.SerializeObject(_userData)}
-                                };
-                                _ = SendMessageAsync(client, _signIn_SucceedMessage);
-                                return;
-                            }
-                        }
-                    }
-
-                    // 실패 메세지
-                    Debug.Log("[TCPServer] Client SignIn Failed");
-
-                    Dictionary<string, string> _signIn_FailedMessage = new Dictionary<string, string>
-                                {
-                                    { "Type", "SignIn" },
-                                    { "Result", "Failed" }
-                                };
-                    _ = SendMessageAsync(client, _signIn_FailedMessage);
-                    break;
-                case "SignUp":
-                    Debug.Log("[TCPServer] Client SignUp requested");
-                    if (message.TryGetValue("ID", out string signUpID) && message.TryGetValue("Password", out string signUpPassword))
-                    {
-                        if (await MongoDBCommunity.Instance.TryInsertAccountDataAsync(signUpID, signUpPassword))
-                        {
-                            Debug.Log("[TCPServer] Client SignUp Succeed");
-
-                            Dictionary<string, string> _signUp_SucceedMessage = new Dictionary<string, string>
-                            {
-                                { "Type", "SignUp" },
-                                { "Result", "Succeed" }
-                            };
-
-                            _ = SendMessageAsync(client, _signUp_SucceedMessage);
-                            return;
-                        }
-                    }
-                    // 실패 메세지
-
-                    Debug.LogError("[TCPServer] ID already exists.");
-
-                    Dictionary<string, string> _signUp_FailedMessage = new Dictionary<string, string>
-                                {
-                                    { "Type", "SignUp" },
-                                    { "Result", "Failed" }
-                                };
-
-                    _ = SendMessageAsync(client, _signUp_FailedMessage);
-
-                    break;
-                case "SetNickname":
-                    // 성공 시,
-                    if (message.TryGetValue("Nickname", out string nickname) && await MongoDBCommunity.Instance.IsUnique("Nickname", nickname))
-                    {
-                        if(message.TryGetValue("GUID", out string guid))
-                        {
-                            await MongoDBCommunity.Instance.UpdateDataAsync(guid, "Nickname", nickname);
-
-                            Dictionary<string, string> _setNickname_SucceedMessage = new Dictionary<string, string>
-                                {
-                                    { "Type", "SetNickname" },
-                                    { "Result", "Succeed" },
-                                    { "Nickname", nickname }
-                                };
-
-                            _ = SendMessageAsync(client, _setNickname_SucceedMessage);
-                            return;
-                        }
-                    }
-                    // 실패 시,
-                    Dictionary<string, string> _setNickname_FailedMessage = new Dictionary<string, string>
-                    {
-                        { "Type", "SetNickname" },
-                        { "Result", "Failed" }
-                    };
-
-                    _ = SendMessageAsync(client, _setNickname_FailedMessage);
-                    break;
-                case "Match":
-                    if (message.TryGetValue("IPEndPoint", out string ipEndPoint))
-                    {
-                        if (Clients.TryGetValue(client, out ClientInfo info))
-                        {
-                            string[] _parts = ipEndPoint.Split(':');
-                            string _address = _parts[0];
-                            int _port = int.Parse(_parts[1]);
-
-                            // UDP IPEndPoint 저장
-                            info.Address = _address;
-                            info.Port = _port;
-                        }
-                        else
-                        {
-                            Debug.LogError("[TCPServer] The client is not registered");
-                        }
-                    }
-                    else if (message.TryGetValue("Request", out string value))
-                    {
-                        if(value == "True")
-                        {
-                            matchQueue.Enqueue(client);
-                            Debug.Log("[TCPServer] Client match requested");
-                            Debug.Log($"[TCPServer] Current matching client count: {matchQueue.Count}");
-                            // 매칭 요청
-                        }
-                        else if(value == "False")
-                        {
-                            DequeueInMatchQueue(client);
-                            Debug.Log("[TCPServer] Client match request canceled");
-                            // 매칭 요청 취소
-                        }
-                        else
-                        {
-                            Debug.LogError("[TCPServer] Request message is not True or False");
-                        }
-                    }
-                    break;
-                default:
-                    Debug.LogError("[TCPServer] Unknown message type received.");
-                    break;
-            }
-        }
-    }
-    void DequeueInMatchQueue(TcpClient client)
+    private void DequeueInMatchQueue(TcpClient client)
     {
         int _queueSize = matchQueue.Count;
         for (int i = 0; i < _queueSize; i++)
@@ -325,8 +382,7 @@ public class TCPServer : MonoBehaviour
                     // 매칭 메세지
                     Dictionary<string, string> _matchMessage = new Dictionary<string, string>
                     {
-                        { "Type", "Match" },
-                        { "Request", "Found" }
+                        { "Result", "Found" }
                     };
 
                     // 매칭 그룹
@@ -338,7 +394,7 @@ public class TCPServer : MonoBehaviour
                         if (matchQueue.TryDequeue(out TcpClient client))
                         {
                             _matchingGroup.Enqueue(client);
-                            _ = SendMessageAsync(client, _matchMessage);
+                            _ = SendMessageAsync(client, PacketID.Matching, _matchMessage);
                         }
                         else
                         {
@@ -403,8 +459,7 @@ public class TCPServer : MonoBehaviour
                 {
                     Dictionary<string, string> _matchMessage = new Dictionary<string, string>
                     {
-                        { "Type", "Match" },
-                        { "Request", "Succeed" },
+                        { "Result", "Succeed" },
                         { "ClientCount", $"{_checkedClientCount.ToString()}" }
                     };
 
@@ -433,7 +488,7 @@ public class TCPServer : MonoBehaviour
                     {
                         if (_temp.TryDequeue(out TcpClient client))
                         {
-                            _ = SendMessageAsync(client, _matchMessage);
+                            _ = SendMessageAsync(client, PacketID.Matching, _matchMessage);
                         }
                         else
                         {
@@ -449,7 +504,7 @@ public class TCPServer : MonoBehaviour
                     Dictionary<string, string> _matchMessage = new Dictionary<string, string>
                     {
                         { "Type", "Match" },
-                        { "Request", "Failed" }
+                        { "Result", "Failed" }
                     };
 
                     for (int i = 0; i < _matchedPlayerCount; i++)
@@ -457,7 +512,7 @@ public class TCPServer : MonoBehaviour
                         if (matchedClients.TryDequeue(out TcpClient client))
                         {
                             // 실패 메세지 전달
-                            _ = SendMessageAsync(client, _matchMessage);
+                            _ = SendMessageAsync(client, PacketID.Matching, _matchMessage);
                         }
                         else
                         {

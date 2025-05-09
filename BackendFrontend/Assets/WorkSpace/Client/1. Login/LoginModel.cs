@@ -1,48 +1,50 @@
 using System;
-using Unity.VisualScripting;
-using UnityEngine.Events;
-
-public class LoginModel : IInitializable, IDisposable, ILoginService
+public class LoginModel : ILoginService
 {
-    public LoginModel() { }
+    public LoginModel(SignInHandler signInHandler, SignUpHandler signUpHandler, SetNicknameHandler setNicknameHandler) 
+    { 
+        this.signInHandler = signInHandler; 
+        this.signUpHandler = signUpHandler;
+        this.setNicknameHandler = setNicknameHandler;
+    }
 
     #region Public Variable
-    public event UnityAction<UserData> OnSignInSucceed;
-    public event UnityAction OnSignInFailed;
-    public event UnityAction OnSignUpSucceed;
-    public event UnityAction OnSignUpFailed;
-    public event UnityAction OnCreateNicknameSucceed;
-    public event UnityAction OnCreateNicknameFailed;
+    public event Action<UserData> OnSignInSucceed;
+    public event Action OnSignInFailed;
+    public event Action OnSignUpSucceed;
+    public event Action OnSignUpFailed;
+    public event Action<string> OnSetNicknameSucceed;
+    public event Action OnSetNicknameFailed;
     #endregion
-    #region Private Variable
-    #endregion
+
+    SignInHandler signInHandler;
+    SignUpHandler signUpHandler;
+    SetNicknameHandler setNicknameHandler;
     public void Initialize()
     {
-        TCPClient.OnSignInSucceedEvent += HandleSignInSucceed;
-        TCPClient.OnSignInFailedEvent += HandleSignInFailed;
-        TCPClient.OnSignUpSucceedEvent += HandleSignUpSucceed;
-        TCPClient.OnSignUpFailedEvent += HandleSignUpFailed;
-        TCPClient.OnCreateNicknameSucceedEvent += HandleCreateNicknameSucceed;
-        TCPClient.OnCreateNicknameFailedEvent += HandleCreateNicknameFailed;
+        signInHandler.OnSucceed += HandleSignInSucceed;
+        signInHandler.OnFailed += HandleSignInFailed;
+        signUpHandler.OnSucceed += HandleSignUpSucceed;
+        signUpHandler.OnFailed += HandleSignUpFailed;
+        setNicknameHandler.OnSucceed += HandleSetNicknameSucceed;
+        setNicknameHandler.OnFailed += HandleSetNicknameFailed;
     }
     public void Dispose()
     {
-        TCPClient.OnSignInSucceedEvent -= HandleSignInSucceed;
-        TCPClient.OnSignInFailedEvent -= HandleSignInFailed;
-        TCPClient.OnSignUpSucceedEvent -= HandleSignUpSucceed;
-        TCPClient.OnSignUpFailedEvent -= HandleSignUpFailed;
-        TCPClient.OnCreateNicknameSucceedEvent -= HandleCreateNicknameSucceed;
-        TCPClient.OnCreateNicknameFailedEvent -= HandleCreateNicknameFailed;
+        signInHandler.OnSucceed -= HandleSignInSucceed;
+        signInHandler.OnFailed -= HandleSignInFailed;
+        signUpHandler.OnSucceed -= HandleSignUpSucceed;
+        signUpHandler.OnFailed -= HandleSignUpFailed;
+        setNicknameHandler.OnSucceed -= HandleSetNicknameSucceed;
+        setNicknameHandler.OnFailed -= HandleSetNicknameFailed;
     }
-
-    public void RequestSignIn(string id, string pw) => TCPClient.Instance?.SendSignInRequestMessage(id, pw);
-    public void RequestSignUp(string id, string pw) => TCPClient.Instance?.SendSignUpRequestMessage(id, pw);
-    public void RequestCreateNickname(string nickname) => TCPClient.Instance?.SendCreateNicknameRequestMessage(nickname);
-
+    public void RequestSignIn(string id, string pw) => NetworkManager.Instance?.SendSignInRequestMessage(id, pw);
+    public void RequestSignUp(string id, string pw) => NetworkManager.Instance?.SendSignUpRequestMessage(id, pw);
+    public void RequestSetNickname(string nickname) => NetworkManager.Instance?.SendSetNicknameRequestMessage(nickname);
     private void HandleSignInSucceed(UserData userData) => OnSignInSucceed?.Invoke(userData);
     private void HandleSignInFailed() => OnSignInFailed?.Invoke();
     private void HandleSignUpSucceed() => OnSignUpSucceed?.Invoke();
     private void HandleSignUpFailed() => OnSignUpFailed?.Invoke();
-    private void HandleCreateNicknameSucceed() => OnCreateNicknameSucceed?.Invoke();
-    private void HandleCreateNicknameFailed() => OnCreateNicknameFailed?.Invoke();
+    private void HandleSetNicknameSucceed(string nickName) => OnSetNicknameSucceed?.Invoke(nickName);
+    private void HandleSetNicknameFailed() => OnSetNicknameFailed?.Invoke();
 }

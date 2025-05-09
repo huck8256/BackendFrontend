@@ -80,10 +80,10 @@ public class UDPClient : SingletonMonoBehaviour<UDPClient>
     private void LinkEvent()
     {
         // 매칭을 찾았을 시, UDP 클라이언트 실행
-        TCPClient.OnMatchFoundEvent += StartClient;
+        //TCPClient.OnMatchFoundEvent += StartClient;
 
         // 매칭 성공 시, 게임 시작
-        TCPClient.OnMatchSucceedEvent += StartGame;
+        //TCPClient.OnMatchSucceedEvent += StartGame;
     }
     void StartClient()
     {

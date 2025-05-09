@@ -28,10 +28,9 @@ public class LoginView : MonoBehaviour
 
     LoginViewModel loginViewModel;
 
-    #region Unity LifeCycle
-    void Awake() => loginViewModel = new LoginViewModel(new LoginModel());
-    void OnEnable() => loginViewModel.Initialize();
-    void OnDisable() => loginViewModel.Dispose();
+    #region Unity Lifecycle
+    void Awake() => loginViewModel = new LoginViewModel(new LoginModel(NetworkManager.Instance?.SignInHandler, NetworkManager.Instance?.SignUpHandler, NetworkManager.Instance?.SetNicknameHandler));
+    void OnEnable() => loginViewModel?.Initialize();
     void Start()
     {
         // Binding
@@ -44,12 +43,12 @@ public class LoginView : MonoBehaviour
         createNickname_nickName.onValueChanged.AsObservable().Subscribe(x => loginViewModel.Nickname.Value = x).AddTo(this);
 
         signIn_SignIn.OnClickAsObservable().Subscribe(_ => loginViewModel.SignInCommand.Execute(Unit.Default)).AddTo(this);
-        signIn_SignUp.OnClickAsObservable().Subscribe(_ => loginViewModel.CurrentPanel.Value = LoginViewModel.PanelState.SignUp).AddTo(this);
+        signIn_SignUp.OnClickAsObservable().Subscribe(_ => loginViewModel.CurrentPanel.Value = LoginPanelState.SignUp).AddTo(this);
 
-        signUp_Back.OnClickAsObservable().Subscribe(_ => loginViewModel.CurrentPanel.Value = LoginViewModel.PanelState.SignIn).AddTo(this);
         signUp_SignUp.OnClickAsObservable().Subscribe(_ => loginViewModel.SignUpCommand.Execute(Unit.Default)).AddTo(this);
+        signUp_Back.OnClickAsObservable().Subscribe(_ => loginViewModel.CurrentPanel.Value = LoginPanelState.SignIn).AddTo(this);
 
-        createNickname_Create.OnClickAsObservable().Subscribe(_ => loginViewModel.CreateNicknameCommand.Execute(Unit.Default)).AddTo(this);
+        createNickname_Create.OnClickAsObservable().Subscribe(_ => loginViewModel.SetNicknameCommand.Execute(Unit.Default)).AddTo(this);
 
         // Log Message
         loginViewModel.LogMessage.Subscribe(msg => log.text = msg).AddTo(this);
@@ -57,10 +56,11 @@ public class LoginView : MonoBehaviour
         // Panel switching
         loginViewModel.CurrentPanel.Subscribe(state =>
         {
-            signIn.SetActive(state == LoginViewModel.PanelState.SignIn);
-            signUp.SetActive(state == LoginViewModel.PanelState.SignUp);
-            createNickname.SetActive(state == LoginViewModel.PanelState.CreateNickname);
+            signIn.SetActive(state == LoginPanelState.SignIn);
+            signUp.SetActive(state == LoginPanelState.SignUp);
+            createNickname.SetActive(state == LoginPanelState.CreateNickname);
         }).AddTo(this);
     }
+    void OnDisable() => loginViewModel?.Dispose();
     #endregion
 }

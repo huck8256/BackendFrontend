@@ -12,8 +12,8 @@ public class ClientInfo
 
 static public class Global
 {
-    static public readonly Dictionary<string, string> Message_Ping = new Dictionary<string, string> { { "HeartBeat", "Ping" } };
-    static public readonly Dictionary<string, string> Message_Pong = new Dictionary<string, string> { { "HeartBeat", "Pong" } };
+    static public readonly float PingInterval = 5f;
+    static public readonly float Timeout = 10f;
     static public string GetLocalIPAddress()
     {
         var host = Dns.GetHostEntry(Dns.GetHostName());

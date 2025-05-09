@@ -1,14 +1,14 @@
-using UnityEngine.Events;
-
-public interface ILoginService
+using System;
+using Unity.VisualScripting;
+public interface ILoginService : IInitializable, IDisposable
 {
-    event UnityAction<UserData> OnSignInSucceed;
-    event UnityAction OnSignInFailed;
-    event UnityAction OnSignUpSucceed;
-    event UnityAction OnSignUpFailed;
-    event UnityAction OnCreateNicknameSucceed;
-    event UnityAction OnCreateNicknameFailed;
+    event Action<UserData> OnSignInSucceed;
+    event Action OnSignInFailed;
+    event Action OnSignUpSucceed;
+    event Action OnSignUpFailed;
+    event Action<string> OnSetNicknameSucceed;
+    event Action OnSetNicknameFailed;
     void RequestSignIn(string id, string pw);
     void RequestSignUp(string id, string pw);
-    void RequestCreateNickname(string nickname);
+    void RequestSetNickname(string nickname);
 }

@@ -1,7 +1,7 @@
 using System;
 using UniRx;
 using Unity.VisualScripting;
-using UnityEngine.Events;
+using UnityEngine;
 using Unit = UniRx.Unit;
 public class LoginViewModel : IInitializable, IDisposable 
 {
@@ -13,15 +13,10 @@ public class LoginViewModel : IInitializable, IDisposable
         onSignInFailedHandler = HandleSignInFailed;
         onSignUpSucceedHandler = HandleSignUpSucceed;
         onSignUpFailedHandler = HandleSignUpFailed;
-        onCreateNicknameSucceedHandler = HandleCreateNicknameSucceed;
-        onCreateNicknameFailedHandler = HandleCreateNicknameFailed;
+        onSetNicknameSucceedHandler = HandleSetNicknameSucceed;
+        onSetNicknameFailedHandler = HandleSetNicknameFailed;
     }
-    public enum PanelState
-    {
-        SignIn,
-        SignUp,
-        CreateNickname
-    }
+  
 
     #region Public Variable
     public IReactiveProperty<string> SignInID => signInID;
@@ -29,19 +24,20 @@ public class LoginViewModel : IInitializable, IDisposable
     public IReactiveProperty<string> SignUpID => signUpID;
     public IReactiveProperty<string> SignUpPassword => signUpPassword;
     public IReactiveProperty<string> Nickname => nickname;
-    public IReactiveProperty<string> LogMessage => logMessage;
-    public IReactiveProperty<PanelState> CurrentPanel => currentPanel;
+    public IReactiveProperty<LoginPanelState> CurrentPanel => currentPanel;
     public IReactiveCommand<Unit> SignInCommand => signInCommand;
     public IReactiveCommand<Unit> SignUpCommand => signUpCommand;
-    public IReactiveCommand<Unit> CreateNicknameCommand => createNicknameCommand;
+    public IReactiveCommand<Unit> SetNicknameCommand => setNicknameCommand;
+    public IReadOnlyReactiveProperty<string> LogMessage => logMessage;
+
     #endregion
     #region Private Variable
-    UnityAction<UserData> onSignInSucceedHandler;
-    UnityAction onSignInFailedHandler;
-    UnityAction onSignUpSucceedHandler;
-    UnityAction onSignUpFailedHandler;
-    UnityAction onCreateNicknameSucceedHandler;
-    UnityAction onCreateNicknameFailedHandler;
+    event Action <UserData> onSignInSucceedHandler;
+    event Action onSignInFailedHandler;
+    event Action onSignUpSucceedHandler;
+    event Action onSignUpFailedHandler;
+    event Action<string> onSetNicknameSucceedHandler;
+    event Action onSetNicknameFailedHandler;
     #endregion
     #region Readonly Variable
     readonly ReactiveProperty<string> signInID = new ReactiveProperty<string>();
@@ -54,11 +50,11 @@ public class LoginViewModel : IInitializable, IDisposable
 
     readonly ReactiveProperty<string> logMessage = new ReactiveProperty<string>();
 
-    readonly ReactiveProperty<PanelState> currentPanel = new ReactiveProperty<PanelState>(PanelState.SignIn);
+    readonly ReactiveProperty<LoginPanelState> currentPanel = new ReactiveProperty<LoginPanelState>(LoginPanelState.SignIn);
 
     readonly ReactiveCommand signInCommand = new ReactiveCommand();
     readonly ReactiveCommand signUpCommand = new ReactiveCommand();
-    readonly ReactiveCommand createNicknameCommand = new ReactiveCommand();
+    readonly ReactiveCommand setNicknameCommand = new ReactiveCommand();
 
     readonly ILoginService loginService;
     readonly CompositeDisposable disposables = new();
@@ -70,14 +66,14 @@ public class LoginViewModel : IInitializable, IDisposable
 
         signInCommand.Subscribe(_ => loginService.RequestSignIn(signInID.Value, signInPassword.Value)).AddTo(disposables);
         signUpCommand.Subscribe(_ => loginService.RequestSignUp(signUpID.Value, signUpPassword.Value)).AddTo(disposables);
-        createNicknameCommand.Subscribe(_ => loginService.RequestCreateNickname(nickname.Value)).AddTo(disposables);
+        setNicknameCommand.Subscribe(_ => loginService.RequestSetNickname(nickname.Value)).AddTo(disposables);
 
         loginService.OnSignInSucceed += onSignInSucceedHandler;
         loginService.OnSignInFailed += onSignInFailedHandler;
         loginService.OnSignUpSucceed += onSignUpSucceedHandler;
         loginService.OnSignUpFailed += onSignUpFailedHandler;
-        loginService.OnCreateNicknameSucceed += onCreateNicknameSucceedHandler;
-        loginService.OnCreateNicknameFailed += onCreateNicknameFailedHandler;
+        loginService.OnSetNicknameSucceed += onSetNicknameSucceedHandler;
+        loginService.OnSetNicknameFailed += onSetNicknameFailedHandler;
     }
     public void Dispose()
     {
@@ -88,32 +84,32 @@ public class LoginViewModel : IInitializable, IDisposable
         loginService.OnSignInFailed -= onSignInFailedHandler;
         loginService.OnSignUpSucceed -= onSignUpSucceedHandler;
         loginService.OnSignUpFailed -= onSignUpFailedHandler;
-        loginService.OnCreateNicknameSucceed -= onCreateNicknameSucceedHandler;
-        loginService.OnCreateNicknameFailed -= onCreateNicknameFailedHandler;
+        loginService.OnSetNicknameSucceed -= onSetNicknameSucceedHandler;
+        loginService.OnSetNicknameFailed -= onSetNicknameFailedHandler;
     }
 
     void HandleSignInSucceed(UserData userData)
     {
-        LogMessage.Value = "Sign in success";
+        logMessage.Value = "Sign in success";
 
         if (userData.Nickname == "Unknown")
-            CurrentPanel.Value = PanelState.CreateNickname;
+            CurrentPanel.Value = LoginPanelState.CreateNickname;
         else
             SceneController.Instance.MoveScene("Lobby");
     }
     void HandleSignInFailed() { }
     void HandleSignUpSucceed() 
     {
-        LogMessage.Value = "Sign Up success";
+        logMessage.Value = "Sign Up success";
 
-        CurrentPanel.Value = PanelState.SignIn;
+        CurrentPanel.Value = LoginPanelState.SignIn;
     }
     void HandleSignUpFailed() { }
-    void HandleCreateNicknameSucceed()
+    void HandleSetNicknameSucceed(string nickname)
     {
-        LogMessage.Value = "Create Nickname success";
+        logMessage.Value = $"Set Nickname success: {nickname}";
 
         SceneController.Instance.MoveScene("Lobby");
     }
-    void HandleCreateNicknameFailed() { }
+    void HandleSetNicknameFailed() { }
 }
